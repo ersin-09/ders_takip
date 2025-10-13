@@ -20,6 +20,20 @@ dotnet run --project DersTakipWin\DersTakipWin.csproj
 
 > Not: Uygulama Windows Forms bileşenleri kullandığı için yalnızca Windows ortamında çalıştırılması önerilir.
 
+## Çalıştırılabilir (.exe) oluşturma
+
+Windows üzerinde bağımsız bir `.exe` dosyası üretmek için .NET'in `publish` komutunu kullanabilirsiniz. Aşağıdaki adımlar, 64 bit Windows için kendinden yeterli (self-contained) tek dosyalık bir paket oluşturur:
+
+```powershell
+dotnet publish DersTakipWin\DersTakipWin.csproj `
+    -c Release `
+    -r win-x64 `
+    --self-contained true `
+    /p:PublishSingleFile=true
+```
+
+Komut tamamlandığında derlenen uygulama `DersTakipWin\bin\Release\net8.0-windows\win-x64\publish\DersTakipWin.exe` yolunda oluşur. İsterseniz `win-x86` gibi farklı bir çalışma zamanı belirterek 32 bit sürüm de üretebilirsiniz. Visual Studio kullanıyorsanız da aynı ayarları **Publish** sihirbazı üzerinden seçerek yayımlama profilini oluşturup tek tıklamayla `.exe` çıktısı alabilirsiniz.
+
 ## Temel Özellikler
 
 - **Excel Entegrasyonu:** Ders programını `.xlsx` formatındaki dosyalardan yükler ve hatalı saat formatlarını kullanıcıya bildirir.
