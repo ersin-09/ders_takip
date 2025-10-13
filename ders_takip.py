@@ -3,9 +3,11 @@ import datetime
 import json
 import tkinter as tk
 from tkinter import font as tkfont, messagebox, colorchooser, simpledialog
-from tkinter import filedialog 
-import sys 
+from tkinter import filedialog
+import sys
 import os
+import platform
+from pathlib import Path
 import threading
 import time
 
@@ -13,9 +15,37 @@ import time
 # 1. AYARLAR VE SABİTLER
 # ==============================
 
-APP_DATA_FILE = 'ders_takip_verileri.json' 
-VARSAYILAN_EXCEL_ADI = 'ders_programi.xlsx' 
-SAAT_FORMATI = "%H:%M:%S" 
+VARSAYILAN_EXCEL_ADI = 'ders_programi.xlsx'
+SAAT_FORMATI = "%H:%M:%S"
+
+
+def uygulama_veri_dosya_yolu(dosya_adi):
+    """Uygulama verileri için platforma uygun dizini oluşturup dosya yolunu döndürür."""
+    try:
+        if platform.system() == "Windows":
+            base_dir = Path(os.environ.get("LOCALAPPDATA", Path.home() / "AppData" / "Local"))
+        elif platform.system() == "Darwin":
+            base_dir = Path.home() / "Library" / "Application Support"
+        else:
+            base_dir = Path(os.environ.get("XDG_DATA_HOME", Path.home() / ".local" / "share"))
+
+        app_dir = base_dir / "DersTakip"
+        app_dir.mkdir(parents=True, exist_ok=True)
+        return app_dir / dosya_adi
+    except Exception:
+        # Dizin oluşturulamazsa mevcut çalışma dizinini kullan
+        return Path(dosya_adi)
+
+
+APP_DATA_FILE = uygulama_veri_dosya_yolu('ders_takip_verileri.json')
+
+# Önceki sürümlerde uygulama dizinine yazılan verileri yeni dizine taşı
+ESKI_APP_DATA_FILE = Path('ders_takip_verileri.json')
+if ESKI_APP_DATA_FILE.exists() and not APP_DATA_FILE.exists():
+    try:
+        APP_DATA_FILE.write_bytes(ESKI_APP_DATA_FILE.read_bytes())
+    except Exception:
+        pass
 
 # Uygulama Varsayılan Ayarları
 VARSAYILAN_AYARLAR = {
@@ -69,6 +99,7 @@ def tum_verileri_kaydet(program_verisi, renkler, ayarlar):
         'ayarlar': ayarlar
     }
     try:
+        APP_DATA_FILE.parent.mkdir(parents=True, exist_ok=True)
         with open(APP_DATA_FILE, 'w', encoding='utf-8') as f:
             json.dump(data, f, ensure_ascii=False, indent=4)
         return True
@@ -351,7 +382,7 @@ class DersTakipUygulamasi:
             if yeni_program is not None:
                 self.program_verisi = yeni_program
                 if tum_verileri_kaydet(self.program_verisi, self.renkler, self.ayarlar):
-                    mesaj = f"Veri '{len(yeni_program)} ders' ile yüklendi ve kaydedildi!"
+                    mesaj = f"Veri '{len(yeni_program)} ders' ile yüklendi ve kaydedildi! (Konum: {APP_DATA_FILE})"
                     renk = '#60BB60' # Yeşil
                 else:
                     mesaj = "Veri yüklendi, ancak KAYIT BAŞARISIZ oldu."
@@ -379,7 +410,7 @@ class DersTakipUygulamasi:
             self.ayarlar['kritik_sure'] = yeni_sure_s
             
             if tum_verileri_kaydet(self.program_verisi, self.renkler, self.ayarlar):
-                mesaj = f"Kritik süre {yeni_sure_s} saniye olarak ayarlandı ve kaydedildi."
+                mesaj = f"Kritik süre {yeni_sure_s} saniye olarak ayarlandı ve kaydedildi. (Konum: {APP_DATA_FILE})"
                 renk = '#60BB60'
             else:
                 mesaj = "Kritik süre güncellendi ancak KAYIT BAŞARISIZ oldu."
@@ -435,7 +466,7 @@ class DersTakipUygulamasi:
         """Ayarları kaydeder ve pencereyi içeriğe göre yeniden boyutlandırır."""
         
         if tum_verileri_kaydet(self.program_verisi, self.renkler, self.ayarlar):
-            mesaj = basari_mesaji
+            mesaj = f"{basari_mesaji} (Konum: {APP_DATA_FILE})"
             renk = '#60BB60'
         else:
             mesaj = "Görünüm güncellendi ancak KAYIT BAŞARISIZ oldu."
@@ -639,6 +670,7 @@ if __name__ == "__main__":
     except Exception as e:
         mesaj = f"Program başlatılırken kritik bir hata oluştu: {e}\n\n"
         mesaj += "Eğer doğrudan Python ile çalıştırıyorsanız, 'pip install pandas openpyxl' komutunu çalıştırdığınızdan emin olun.\n"
-        mesaj += "Eğer EXE dosyasını çalıştırıyorsanız, eksik bağımlılıklar olabilir. Tekrar PyInstaller komutunu çalıştırın."
+        mesaj += "Eğer EXE dosyasını çalıştırıyorsanız, eksik bağımlılıklar olabilir. Tekrar PyInstaller komutunu çalıştırın.\n\n"
+        mesaj += f"Veri dosyası konumu: {APP_DATA_FILE}"
         messagebox.showerror("Kritik Hata", mesaj)
         sys.exit(1)
