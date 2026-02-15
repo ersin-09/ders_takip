@@ -1,0 +1,9 @@
+[Desktop Entry]
+Type=Application
+Name=Ders Takip
+Comment=Ders programı takip uygulaması
+Exec=/home/ersin/Belgeler/GitHub/ders_takip/run.sh
+Icon=utilities-terminal
+Terminal=false
+Categories=Utility;Education;
+StartupNotify=false

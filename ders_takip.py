@@ -15,7 +15,11 @@ import time
 # 1. AYARLAR VE SABİTLER
 # ==============================
 
-VARSAYILAN_EXCEL_ADI = 'ders_programi.xlsx'
+
+# Mevcut çalışma dizinini belirle (Linux'ta .desktop dosyasından çalıştırıldığında önemli olabilir)
+CWD = Path(__file__).parent.absolute()
+VARSAYILAN_EXCEL_ADI = str(CWD / 'ders_saatleri.xlsx')
+
 SAAT_FORMATI = "%H:%M:%S"
 
 
@@ -107,6 +111,16 @@ def tum_verileri_kaydet(program_verisi, renkler, ayarlar):
         messagebox.showerror("Kayıt Hatası", f"Veri kaydedilemedi: {e}")
         return False
 
+def parse_time(time_str):
+    """Farklı formatlardaki saat verisini dener (HH:MM:SS veya HH:MM)."""
+    formats = ["%H:%M:%S", "%H:%M"]
+    for fmt in formats:
+        try:
+            return datetime.datetime.strptime(time_str, fmt).time()
+        except ValueError:
+            pass
+    raise ValueError(f"Saat formatı geçersiz: {time_str}")
+
 def excel_to_memory(dosya_yolu):
     """Belirtilen Excel dosyasından ders saatlerini okur ve listeye dönüştürür."""
     try:
@@ -119,11 +133,24 @@ def excel_to_memory(dosya_yolu):
         for index, row in df.iterrows():
             baslangic_str = str(row['Baslangic']).strip()
             bitis_str = str(row['Bitis']).strip()
+            
+            # Eğer excel'den gelen veri "09:00:00" yerine "09:00" ise veya saniye yoksa düzelt
+            # Ancak en temiz yol parse_time fonksiyonu kullanmak
             try:
-                datetime.datetime.strptime(baslangic_str, SAAT_FORMATI).time()
-                datetime.datetime.strptime(bitis_str, SAAT_FORMATI).time()
+                t_bas = parse_time(baslangic_str)
+                t_bit = parse_time(bitis_str)
+                
+                # Standart formata çevirip (HH:MM:SS) kaydedelim ki hesaplamada sorun çıkmasın
+                baslangic_str = t_bas.strftime(SAAT_FORMATI)
+                bitis_str = t_bit.strftime(SAAT_FORMATI)
+                
             except ValueError:
-                raise ValueError(f"'{row['Ad']}' satırındaki saat verisi hatalı.")
+                 # Belki boş satırdır veya başlık tekrarıdır, geç
+                 # Ancak hata verip kullanıcıyı uyarmak daha güvenli
+                 if not baslangic_str or not bitis_str or baslangic_str.lower() == 'nan':
+                     continue
+                 raise ValueError(f"'{row['Ad']}' satırındaki saat verisi hatalı: {baslangic_str} - {bitis_str}")
+
             program.append({'Ad': str(row['Ad']), 'Baslangic': baslangic_str, 'Bitis': bitis_str})
         if not program:
              raise ValueError("Excel dosyasında ders verisi bulunamadı.")
@@ -137,8 +164,10 @@ def kalan_süre_hesapla(program_str):
     program = []
     for ders in program_str:
         try:
-            baslangic_time = datetime.datetime.strptime(ders['Baslangic'], SAAT_FORMATI).time()
-            bitis_time = datetime.datetime.strptime(ders['Bitis'], SAAT_FORMATI).time()
+            # Buradaki veriler artık standart formata (HH:MM:SS) çevrilmiş olmalı
+            # Ama yine de parse_time kullanalım garanti olsun
+            baslangic_time = parse_time(ders['Baslangic'])
+            bitis_time = parse_time(ders['Bitis'])
             program.append({'Ad': ders['Ad'], 'Baslangic': baslangic_time, 'Bitis': bitis_time, 'Baslangic_Str': ders['Baslangic'], 'Bitis_Str': ders['Bitis']})
         except ValueError:
             continue
@@ -201,29 +230,54 @@ class DersTakipUygulamasi:
     def __init__(self, master):
         # Ayarları yükle:
         self.program_verisi, self.renkler, self.ayarlar = tum_verileri_yukle() 
+        
+        # Eğer kayıtlı veri yoksa ve varsayılan Excel dosyası mevcutsa, onu yüklemeyi dene
+        if self.program_verisi is None:
+            if os.path.exists(VARSAYILAN_EXCEL_ADI):
+                print(f"Varsayılan Excel Dosyası Bulundu: {VARSAYILAN_EXCEL_ADI}")
+                # Hata durumunda mesaj kutusu göstermemesi için try-except bloğuna alalım
+                # excel_to_memory normalde messagebox gösteriyor, bu yüzden startup'ta 
+                # kullanıcıyı hemen hatayla karşılamamak için dikkatli olmalıyız.
+                # Ancak kullanıcı excel dosyasını koyduysa yüklenmesini bekler, hata varsa görmeli.
+                self.program_verisi = excel_to_memory(VARSAYILAN_EXCEL_ADI)
+                
+                if self.program_verisi:
+                    # Başarılı yükleme sonrası verileri kaydet
+                    tum_verileri_kaydet(self.program_verisi, self.renkler, self.ayarlar)
         self.master = master
         self.guncelle_job = None 
         
         # --- Pencere Ayarları ---
-        master.title("Ders Takip")
-        master.attributes('-topmost', True) 
-        master.resizable(False, False)
-        master.configure(bg=self.renkler['arka_plan']) 
-        
+        self.master.title("Ders Takip")
+        self.master.attributes('-topmost', True) 
+        self.master.resizable(False, False)
+        self.master.configure(bg=self.renkler['arka_plan']) 
+
         # --- Font Ayarları ---
-        self.baslik_font = tkfont.Font(family="Segoe UI", size=13, weight="normal")
+        # İşletim sistemine göre font ailesi seçimi
+        if platform.system() == "Windows":
+            baslik_font_family = "Segoe UI"
+            sayac_font_family = "Consolas"
+            saat_font_family = "Segoe UI"
+        else:
+            # Linux/Pardus için yaygın fontlar
+            baslik_font_family = "DejaVu Sans"
+            sayac_font_family = "DejaVu Sans Mono"
+            saat_font_family = "DejaVu Sans"
+
+        self.baslik_font = tkfont.Font(family=baslik_font_family, size=13, weight="normal")
         
         # Sayaç Fontu
         sayaç_boyutu = self.ayarlar.get('sayaç_boyutu', VARSAYILAN_AYARLAR['sayaç_boyutu'])
-        self.sure_font = tkfont.Font(family="Consolas", size=sayaç_boyutu, weight="bold")
-        self.unlem_font = tkfont.Font(family="Consolas", size=int(sayaç_boyutu * 0.6), weight="bold")
+        self.sure_font = tkfont.Font(family=sayac_font_family, size=sayaç_boyutu, weight="bold")
+        self.unlem_font = tkfont.Font(family=sayac_font_family, size=int(sayaç_boyutu * 0.6), weight="bold")
         
         # Saat Aralığı Fontu
         saat_araligi_boyutu = self.ayarlar.get('saat_araligi_boyutu', VARSAYILAN_AYARLAR['saat_araligi_boyutu'])
-        self.saat_araligi_font = tkfont.Font(family="Segoe UI", size=saat_araligi_boyutu, weight="normal")
+        self.saat_araligi_font = tkfont.Font(family=saat_font_family, size=saat_araligi_boyutu, weight="normal")
         
         # Diğer Fontlar
-        self.info_font = tkfont.Font(family="Segoe UI", size=9)
+        self.info_font = tkfont.Font(family=baslik_font_family, size=9)
 
 
         # Ana konteyner
@@ -294,12 +348,32 @@ class DersTakipUygulamasi:
 
     def menu_bar_olustur(self):
         """Menü barı oluşturur ve tüm seçenekleri Ayarlar menüsü altına toplar."""
-        menubar = tk.Menu(self.master)
-        self.master.config(menu=menubar)
+        self.menubar = tk.Menu(self.master)
+        self.gizle_job = None
+
+        def menuyu_goster(event):
+            if self.gizle_job:
+                self.master.after_cancel(self.gizle_job)
+                self.gizle_job = None
+            self.master.config(menu=self.menubar)
+
+        def menuyu_gizle_gecikmeli(event):
+            # Alt menülere geçişte kapanmaması için süreyi uzattık (3 saniye)
+            if self.gizle_job:
+                self.master.after_cancel(self.gizle_job)
+            self.gizle_job = self.master.after(3000, lambda: self.master.config(menu=""))
+
+        # Fare pencere üzerine gelince menüyü göster, ayrılınca gizle
+        self.master.bind('<Enter>', menuyu_goster)
+        self.master.bind('<Leave>', menuyu_gizle_gecikmeli)
 
         # --- 1. AYARLAR MENÜSÜ (Tüm seçenekleri toplar) ---
-        ayarlar_menu = tk.Menu(menubar, tearoff=0)
-        menubar.add_cascade(label="Ayarlar", menu=ayarlar_menu)
+        ayarlar_menu = tk.Menu(self.menubar, tearoff=0)
+        self.menubar.add_cascade(label="Ayarlar", menu=ayarlar_menu)
+        
+        # Menü barın kendisine de olay ekleyelim ki fare üzerindeyken kapanmasın
+        self.menubar.bind('<Enter>', menuyu_goster)
+        self.menubar.bind('<Leave>', menuyu_gizle_gecikmeli)
 
         # 1.1. Program Ayarları
         program_ayarlari_menu = tk.Menu(ayarlar_menu, tearoff=0)

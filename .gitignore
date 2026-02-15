@@ -1,0 +1,21 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+venv/
+.env
+
+# Distribution / Build
+build/
+dist/
+*.spec
+*.deb
+ders-takip_*/
+
+# User Data & Settings
+ders_takip_verileri.json
+*.log
+
+# System Files
+.DS_Store
+Thumbs.db
