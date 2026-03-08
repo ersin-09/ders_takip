@@ -3,7 +3,7 @@ set -e
 
 # Yapılandırma
 APP_NAME="ders-takip"
-VERSION="1.6"
+VERSION="1.9-1"
 ARCH="all"
 PKG_DIR="${APP_NAME}_${VERSION}_${ARCH}"
 OPT_DIR="$PKG_DIR/opt/$APP_NAME"

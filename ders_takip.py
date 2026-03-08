@@ -16,8 +16,13 @@ import time
 # ==============================
 
 
-# Mevcut çalışma dizinini belirle (Linux'ta .desktop dosyasından çalıştırıldığında önemli olabilir)
-CWD = Path(__file__).parent.absolute()
+# Mevcut çalışma dizinini belirle (Linux'ta .desktop dosyasından veya Windows'ta EXE'den çalıştırıldığında önemli)
+if getattr(sys, 'frozen', False):
+    # PyInstaller ile derlenmişse, EXE'nin bulunduğu klasör
+    CWD = Path(sys.executable).parent.absolute()
+else:
+    CWD = Path(__file__).parent.absolute()
+
 VARSAYILAN_EXCEL_ADI = str(CWD / 'ders_saatleri.xlsx')
 
 SAAT_FORMATI = "%H:%M:%S"
@@ -55,7 +60,8 @@ if ESKI_APP_DATA_FILE.exists() and not APP_DATA_FILE.exists():
 VARSAYILAN_AYARLAR = {
     'kritik_sure': 180, # Saniye (3 dakika)
     'sayaç_boyutu': 40, # Sayaç font boyutu
-    'saat_araligi_boyutu': 12 # Başlangıç/Bitiş saati font boyutu
+    'saat_araligi_boyutu': 12, # Başlangıç/Bitiş saati font boyutu
+    'uyari_sesi_acik': True
 }
 
 # Varsayılan arayüz renkleri
@@ -246,6 +252,7 @@ class DersTakipUygulamasi:
                     tum_verileri_kaydet(self.program_verisi, self.renkler, self.ayarlar)
         self.master = master
         self.guncelle_job = None 
+        self.son_uyari_blok = None
         
         # --- Pencere Ayarları ---
         self.master.title("Ders Takip")
@@ -386,6 +393,13 @@ class DersTakipUygulamasi:
             label="Kritik Süre (sn) Ayarla...", 
             command=self.kritik_sure_ayarla
         )
+        
+        self.ses_durum_var = tk.BooleanVar(value=self.ayarlar.get('uyari_sesi_acik', VARSAYILAN_AYARLAR['uyari_sesi_acik']))
+        program_ayarlari_menu.add_checkbutton(
+            label="Kritik Süre Uyarı Sesi",
+            variable=self.ses_durum_var,
+            command=self.uyari_sesi_degistir
+        )
 
         # 1.2. Görünüm Ayarları
         gorunum_ayarlari_menu = tk.Menu(ayarlar_menu, tearoff=0)
@@ -441,6 +455,38 @@ class DersTakipUygulamasi:
         dakika = (saniye % 3600) // 60
         saniye = saniye % 60
         return f"{saat:02}:{dakika:02}:{saniye:02}"
+
+    def uyari_sesi_degistir(self):
+        self.ayarlar['uyari_sesi_acik'] = self.ses_durum_var.get()
+        tum_verileri_kaydet(self.program_verisi, self.renkler, self.ayarlar)
+        durum = "açıldı" if self.ayarlar['uyari_sesi_acik'] else "kapatıldı"
+        self.info_label.config(text=f"Uyarı sesi {durum}.", fg='#60BB60')
+        self.guncelle(anlik=True)
+        
+    def uyari_sesi_cal(self):
+        if not self.ayarlar.get('uyari_sesi_acik', VARSAYILAN_AYARLAR['uyari_sesi_acik']):
+            return
+            
+        def _play():
+            try:
+                if platform.system() == "Windows":
+                    import winsound
+                    # 5 adet uzun bip sesi, dikkat çekici olması için bip süresi uzun tutuldu
+                    for _ in range(5):
+                        winsound.Beep(1000, 800)
+                        time.sleep(0.2)
+                else:
+                    # Linux/Pardus üzerinde aplay/paplay kurulu olmayabiliyor.
+                    # Bu nedenle garantili bir yol olarak Tkinter bell() ve terminal beep karmaşık olarak 
+                    # daha uzun süre çalması için tekrarlı bir döngü yapıyoruz.
+                    for _ in range(7):
+                        self.master.bell()
+                        print('\a', end='', flush=True)
+                        time.sleep(0.5)
+            except:
+                pass
+                
+        threading.Thread(target=_play, daemon=True).start()
 
     def excel_den_yukle_ve_kaydet(self):
         """Kullanıcının Excel dosyasını seçmesini sağlar, yükler ve tüm veriyi kaydeder."""
@@ -617,6 +663,7 @@ class DersTakipUygulamasi:
         KRITIK_SURE_ANLIK = self.ayarlar.get('kritik_sure', VARSAYILAN_AYARLAR['kritik_sure'])
             
         # --- DURUM VE RENK AYARLAMA ---
+        mevcut_blok = f"{sonuc['Type']}_{sonuc['Ad']}_{sonuc['Baslangic_Str']}"
         sayac_ana_renk = self.renkler['alt_yazi'] 
         durum_bg_renk = self.renkler['arka_plan']
         uyari_yapilmali = False
@@ -679,10 +726,16 @@ class DersTakipUygulamasi:
             # Ünlemleri göster
             self.sol_unlem_label.config(text="!", fg='#FFFFFF', bg=uyari_bg)
             self.sag_unlem_label.config(text="!", fg='#FFFFFF', bg=uyari_bg)
+            
+            # Uyarı Sesi Çalma Mantığı
+            if mevcut_blok != getattr(self, 'son_uyari_blok', None):
+                self.uyari_sesi_cal()
+                self.son_uyari_blok = mevcut_blok
 
         else:
             # Normal renklere dön 
             self._uyari_gorselini_sıfırla()
+            self.son_uyari_blok = None
             
             # Tüm ana bileşenlerin arka planını normal arka plan rengine geri ayarla
             normal_bg = self.renkler['arka_plan']
